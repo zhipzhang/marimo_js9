@@ -57,3 +57,31 @@
   color: #991b1b;
   background: #fef2f2;
 }
+
+.marimo-js9:fullscreen {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  border: 0;
+  border-radius: 0;
+  background: #fff;
+}
+
+.marimo-js9__button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px;
+  color: #6b7280;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.marimo-js9__button:hover {
+  color: #111827;
+  background: #e5e7eb;
+}

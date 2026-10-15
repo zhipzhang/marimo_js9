@@ -83,30 +83,50 @@ function frameDocument({ assetBase, token, width, height }) {
           report("error", message);
         };
 
-        const finish = () => report("loaded");
+        const finish = () => {
+          resize();
+          report("loaded");
+        };
 
-        const resize = () => {
+        const chromeHeight = () =>
+          ["JS9Menubar", "JS9Toolbar", "JS9Statusbar"].reduce(
+            (total, id) =>
+              total + (document.getElementById(id)?.offsetHeight ?? 0),
+            0
+          );
+
+        const resize = (refit = false) => {
           if (!js9Ready) return;
           const nextWidth = Math.max(64, Math.floor(requestedSize.width));
           const nextHeight = Math.max(64, Math.floor(requestedSize.height));
           const viewer = document.getElementById("marimo-js9-viewer");
+          const chrome = chromeHeight();
           document.body.style.width = nextWidth + "px";
           document.documentElement.style.width = nextWidth + "px";
-          document.documentElement.style.height = (nextHeight + 92) + "px";
-          document.body.style.height = (nextHeight + 92) + "px";
+          document.documentElement.style.height = (nextHeight + chrome) + "px";
+          document.body.style.height = (nextHeight + chrome) + "px";
           viewer.style.width = nextWidth + "px";
+          // JS9 3.9 sizes the statusbar once at init and never updates it on
+          // display.resize(), which clips the status text at the default
+          // 512 px once the viewer is wider. Keep it in sync ourselves.
+          const statusbar = document.getElementById("JS9Statusbar");
+          if (statusbar) statusbar.style.width = nextWidth + "px";
+          report("chrome", String(chrome));
           try {
             const display = window.JS9.lookupDisplay("JS9");
             if (!display) throw new Error("JS9 display is not available");
             display.resize(nextWidth, nextHeight, { center: true });
+            if (refit && display.image) {
+              window.JS9.SetZoom("to fit", { display: "JS9" });
+            }
           } catch (error) {
             fail(error);
           }
         };
 
-        window.marimoJS9Resize = (width, height) => {
+        window.marimoJS9Resize = (width, height, refit) => {
           requestedSize = { width: Number(width), height: Number(height) };
-          resize();
+          resize(refit === true);
         };
 
         const load = () => {
@@ -121,6 +141,13 @@ function frameDocument({ assetBase, token, width, height }) {
               ...payload.options,
               file: payload.filename,
               onload: (im) => {
+                if (payload.zoomFit) {
+                  try {
+                    window.JS9.SetZoom("to fit", { display: im.display });
+                  } catch (error) {
+                    fail(error);
+                  }
+                }
                 if (!payload.regions) {
                   finish();
                   return;
@@ -162,7 +189,7 @@ function frameDocument({ assetBase, token, width, height }) {
               width: Number(data.width),
               height: Number(data.height),
             };
-            resize();
+            resize(data.refit === true);
           }
         });
 
@@ -191,10 +218,11 @@ function render({ model, el }) {
   const width = model.get("width");
   const height = model.get("height");
   const fit = model.get("fit");
-  const chromeHeight = 92;
+  let chromeHeight = 92;
   const root = document.createElement("div");
   const controls = document.createElement("div");
   const filename = document.createElement("span");
+  const expand = document.createElement("button");
   const frame = document.createElement("iframe");
   const notice = document.createElement("div");
   let frameReady = false;
@@ -204,6 +232,15 @@ function render({ model, el }) {
   filename.className = "marimo-js9__filename";
   filename.textContent = model.get("filename");
   filename.title = model.get("filename");
+  expand.className = "marimo-js9__button";
+  expand.type = "button";
+  expand.title = "Toggle fullscreen";
+  expand.setAttribute("aria-label", "Toggle fullscreen");
+  expand.innerHTML =
+    '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" ' +
+    'stroke="currentColor" stroke-width="1.6" stroke-linecap="round" ' +
+    'stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M1.5 6V1.5H6M10 1.5h4.5V6M14.5 10v4.5H10M6 14.5H1.5V10"/></svg>';
   notice.className = "marimo-js9__notice";
   notice.textContent = "Starting JS9…";
   frame.className = "marimo-js9__frame";
@@ -217,11 +254,37 @@ function render({ model, el }) {
 
   root.style.width = `${width}px`;
   root.style.maxWidth = fit ? "100%" : "none";
-  controls.append(filename);
+  controls.append(filename, expand);
   root.append(controls, notice, frame);
   el.append(root);
 
-  const syncSize = () => {
+  const isFullscreen = () => root.classList.contains("marimo-js9--fullscreen");
+
+  const sendResize = (displayWidth, displayHeight, refit = false) => {
+    if (!frameReady || !frame.contentWindow) return;
+    try {
+      if (typeof frame.contentWindow.marimoJS9Resize === "function") {
+        frame.contentWindow.marimoJS9Resize(displayWidth, displayHeight, refit);
+        return;
+      }
+    } catch (_) {
+      // Fall back to postMessage when direct same-origin access is blocked.
+    }
+    frame.contentWindow.postMessage(
+      {
+        namespace: MESSAGE_NAMESPACE,
+        token,
+        kind: "resize",
+        width: displayWidth,
+        height: displayHeight,
+        refit,
+      },
+      "*"
+    );
+  };
+
+  const syncSize = (refit = false) => {
+    if (isFullscreen()) return;
     let displayWidth = width;
     let displayHeight = height;
     if (fit) {
@@ -239,27 +302,41 @@ function render({ model, el }) {
     frame.height = String(displayHeight + chromeHeight);
     frame.style.width = displayWidth + "px";
     frame.style.height = (displayHeight + chromeHeight) + "px";
-    if (frameReady && frame.contentWindow) {
-      try {
-        if (typeof frame.contentWindow.marimoJS9Resize === "function") {
-          frame.contentWindow.marimoJS9Resize(displayWidth, displayHeight);
-          return;
-        }
-      } catch (_) {
-        // Fall back to postMessage when direct same-origin access is blocked.
-      }
-      frame.contentWindow.postMessage(
-        {
-          namespace: MESSAGE_NAMESPACE,
-          token,
-          kind: "resize",
-          width: displayWidth,
-          height: displayHeight,
-        },
-        "*"
-      );
-    }
+    sendResize(displayWidth, displayHeight, refit);
   };
+
+  const layoutFullscreen = () => {
+    const chrome = Math.ceil(controls.getBoundingClientRect().height);
+    const displayWidth = Math.max(160, window.innerWidth - 16);
+    const displayHeight = Math.max(
+      64,
+      window.innerHeight - chrome - chromeHeight - 16
+    );
+    frame.width = String(displayWidth);
+    frame.height = String(displayHeight + chromeHeight);
+    frame.style.width = displayWidth + "px";
+    frame.style.height = (displayHeight + chromeHeight) + "px";
+    sendResize(displayWidth, displayHeight, true);
+  };
+
+  expand.addEventListener("click", () => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+    } else if (typeof root.requestFullscreen === "function") {
+      root.requestFullscreen();
+    }
+  });
+  document.addEventListener("fullscreenchange", () => {
+    const fullscreen =
+      root.matches?.(":fullscreen") || document.fullscreenElement === root;
+    if (fullscreen) {
+      root.classList.add("marimo-js9--fullscreen");
+      layoutFullscreen();
+    } else {
+      root.classList.remove("marimo-js9--fullscreen");
+      syncSize(true);
+    }
+  });
 
   const setStatus = (status, error = "") => {
     model.set("status", status);
@@ -291,6 +368,7 @@ function render({ model, el }) {
             regions: model.get("region_text"),
             regionFilename: model.get("region_filename"),
             options: model.get("options"),
+            zoomFit: model.get("zoom_fit"),
           },
           "*",
           [image.buffer]
@@ -302,8 +380,18 @@ function render({ model, el }) {
         const message = error instanceof Error ? error.message : String(error);
         notice.textContent = `Could not send FITS image: ${message}`;
         notice.classList.add("marimo-js9__notice--error");
-      if (!notice.isConnected) root.append(notice);
+        if (!notice.isConnected) root.append(notice);
         setStatus("error", message);
+      }
+    } else if (data.kind === "chrome") {
+      const next = Number(data.detail);
+      if (Number.isFinite(next) && next > 0 && next !== chromeHeight) {
+        chromeHeight = next;
+        if (isFullscreen()) {
+          layoutFullscreen();
+        } else {
+          syncSize();
+        }
       }
     } else if (data.kind === "loading-image") {
       notice.textContent = "Loading FITS image…";

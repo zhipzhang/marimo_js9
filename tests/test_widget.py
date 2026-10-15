@@ -36,7 +36,7 @@ def test_reads_fits_and_regions(fits_file: Path, tmp_path: Path) -> None:
     assert viewer.width == 640
     assert viewer.height == 480
     assert viewer.fit is False
-    assert viewer.options == {"scale": "log"}
+    assert viewer.options == {"scale": "log", "zoom": "to fit"}
     assert viewer.asset_base == DEFAULT_ASSET_BASE
 
 
@@ -45,6 +45,28 @@ def test_accepts_literal_region_text(fits_file: Path) -> None:
 
     assert viewer.region_filename == "regions.reg"
     assert viewer.region_text.startswith("fk5;")
+
+
+def test_default_size_and_zoom_fit(fits_file: Path) -> None:
+    viewer = JS9(fits_file)
+
+    assert viewer.width == 800
+    assert viewer.height == 640
+    assert viewer.zoom_fit is True
+    assert viewer.options == {"zoom": "to fit"}
+
+
+def test_zoom_fit_can_be_disabled_or_overridden(fits_file: Path) -> None:
+    viewer = JS9(fits_file, zoom_fit=False)
+    assert viewer.options == {}
+
+    viewer = JS9(fits_file, options={"zoom": 2})
+    assert viewer.options == {"zoom": 2}
+
+
+def test_rejects_non_boolean_zoom_fit(fits_file: Path) -> None:
+    with pytest.raises(TypeError, match="zoom_fit"):
+        JS9(fits_file, zoom_fit=1)  # type: ignore[arg-type]
 
 
 def test_normalizes_asset_base(fits_file: Path) -> None:
@@ -88,5 +110,6 @@ def test_widget_frontend_files_are_packaged() -> None:
     assert Path(JS9._esm._path).is_file()
     assert Path(JS9._css._path).is_file()
     frontend = Path(JS9._esm._path).read_text(encoding="utf-8")
-    assert "requestFullscreen" not in frontend
+    assert "marimoJS9Resize" in frontend
+    assert "SetZoom" in frontend
     assert "GaussBlurData" not in frontend

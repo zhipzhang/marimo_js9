@@ -37,16 +37,21 @@ Set the canvas size and pass JSON-compatible JS9 load options when needed:
 ```python
 viewer = JS9(
     "image.fits.gz",
-    width=700,
-    height=600,
+    width=800,
+    height=640,
     options={
         "scale": "log",
         "colormap": "heat",
     },
 )
 ```
-The viewer shrinks to fit a narrow output column by default. Set `fit=False`
-to use the exact requested dimensions with horizontal scrolling.
+
+The viewer is 800×640 pixels by default and shrinks to fit a narrow output
+column. Set `fit=False` to use the exact requested dimensions with horizontal
+scrolling. Images are zoomed to fill the display when they load
+(`zoom_fit=True`, the default); set `zoom_fit=False` or pass an explicit
+`"zoom"` option to keep the native scale. A button in the top bar expands the
+viewer to fullscreen for a closer look.
 
 `regions` accepts either a region-file path or literal DS9 region text:
 

@@ -72,10 +72,14 @@ class JS9(anywidget.AnyWidget):
         Optional path to a DS9 region file. A literal DS9 region string is also
         accepted when it contains a shape expression or a newline.
     width, height:
-        Size of the JS9 image canvas in CSS pixels.
+        Size of the JS9 image canvas in CSS pixels (800 by 640 by default).
     fit:
         Shrink the viewer to fit a narrow notebook output while preserving its
         aspect ratio.
+    zoom_fit:
+        Zoom the image to fill the canvas when it loads (JS9's ``"to fit"``
+        zoom, the default). Set ``zoom_fit=False`` to keep the native scale,
+        or pass an explicit ``"zoom"`` entry in ``options``.
     options:
         JSON-serializable options forwarded to ``JS9.Load`` (for example,
         ``{"scale": "log", "colormap": "heat"}``).
@@ -101,6 +105,7 @@ class JS9(anywidget.AnyWidget):
     width = traitlets.Int(512).tag(sync=True)
     height = traitlets.Int(512).tag(sync=True)
     fit = traitlets.Bool(True).tag(sync=True)
+    zoom_fit = traitlets.Bool(True).tag(sync=True)
     options = traitlets.Dict(default_value={}).tag(sync=True)
     asset_base = traitlets.Unicode(DEFAULT_ASSET_BASE).tag(sync=True)
     status = traitlets.Unicode("loading").tag(sync=True)
@@ -111,9 +116,10 @@ class JS9(anywidget.AnyWidget):
         image: PathLike,
         *,
         regions: Optional[PathLike] = None,
-        width: int = 512,
-        height: int = 512,
+        width: int = 800,
+        height: int = 640,
         fit: bool = True,
+        zoom_fit: bool = True,
         options: Optional[Mapping[str, Any]] = None,
         asset_base: str = DEFAULT_ASSET_BASE,
         **kwargs: Any,
@@ -124,10 +130,14 @@ class JS9(anywidget.AnyWidget):
             raise ValueError("height must be an integer of at least 64 pixels")
         if not isinstance(fit, bool):
             raise TypeError("fit must be a boolean")
+        if not isinstance(zoom_fit, bool):
+            raise TypeError("zoom_fit must be a boolean")
 
         image_path, image_data = _file_bytes(image, kind="FITS")
         region_filename, region_text = _region_source(regions)
         load_options = dict(options or {})
+        if zoom_fit and "zoom" not in load_options:
+            load_options["zoom"] = "to fit"
         try:
             json.dumps(load_options)
         except (TypeError, ValueError) as exc:
@@ -141,6 +151,7 @@ class JS9(anywidget.AnyWidget):
             width=width,
             height=height,
             fit=fit,
+            zoom_fit=zoom_fit,
             options=load_options,
             asset_base=_asset_url(asset_base),
             **kwargs,
